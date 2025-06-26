@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DuckDB嵌入式数据库与LLM智能分析系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --secondary: #3498db;
+            --success: #2ecc71;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+            --light: #ecf0f1;
+            --dark: #34495e;
+        }
+
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border: none;
+        }
+
+        .card-header {
+            background-color: var(--primary);
+            color: white;
+            border-radius: 10px 10px 0 0 !important;
+            font-weight: 600;
+        }
+
+        .status-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        .status-normal {
+            background-color: rgba(46, 204, 113, 0.2);
+            color: #27ae60;
+        }
+
+        .status-warning {
+            background-color: rgba(243, 156, 18, 0.2);
+            color: #d35400;
+        }
+
+        .status-danger {
+            background-color: rgba(231, 76, 60, 0.2);
+            color: #c0392b;
+        }
+
+        .query-input {
+            border-radius: 20px;
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            transition: all 0.3s;
+        }
+
+        .query-input:focus {
+            border-color: var(--secondary);
+            box-shadow: 0 0 0 0.25rem rgba(52, 152, 219, 0.25);
+        }
+
+        .btn-query {
+            border-radius: 20px;
+            padding: 10px 25px;
+            background-color: var(--secondary);
+            border: none;
+            transition: all 0.3s;
+        }
+
+        .btn-query:hover {
+            background-color: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        .result-container {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .sql-container {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+        }
+
+        .history-item {
+            border-left: 3px solid var(--secondary);
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            background-color: #f8f9fa;
+            border-radius: 0 5px 5px 0;
+            transition: all 0.2s;
+        }
+
+        .history-item:hover {
+            background-color: #e9f7fe;
+            transform: translateX(5px);
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            margin-bottom: 15px;
+        }
+
+        .cpu-card {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+        }
+
+        .memory-card {
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+        }
+
+        .disk-card {
+            background: linear-gradient(135deg, #f39c12, #d35400);
+        }
+
+        .network-card {
+            background: linear-gradient(135deg, #9b59b6, #8e44ad);
+        }
+
+        .chart-container {
+            height: 200px;
+            position: relative;
+        }
+
+        .sensor-table tbody tr {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .sensor-table tbody tr:hover {
+            background-color: #f1f9ff;
+        }
+        /* 进度条样式 */
+        .progress {
+            border-radius: 5px;
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .progress-bar {
+            border-radius: 5px;
+        }
+
+        /* 卡片统一高度 */
+        .stat-card {
+            height: 100%;
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+        }
+
+        .stat-card h6 {
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .stat-card h6 i {
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <div class="row mb-4">
+            <div class="col-12 text-center">
+                <h1 class="display-4 fw-bold text-primary">
+                    <i class="fas fa-database me-2"></i>DuckDB嵌入式数据库与LLM智能分析系统
+                </h1>
+                <p class="lead text-muted">基于量化版Qwen-7B模型与DuckDB向量化引擎的轻量级工业数据分析解决方案</p>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- 左侧面板 -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-search me-2"></i>自然语言查询</span>
+                        <div>
+                            <button class="btn btn-sm btn-outline-light me-2" id="voiceBtn">
+                                <i class="fas fa-microphone"></i> 语音输入
+                            </button>
+                            <button class="btn btn-sm btn-outline-light" id="exampleBtn">
+                                <i class="fas fa-lightbulb"></i> 示例查询
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <input type="text" class="form-control query-input" id="queryInput"
+                                   placeholder="输入自然语言查询，例如：'显示最近温度超过80℃的传感器数据'">
+                            <button class="btn btn-query" type="button" id="executeBtn">
+                                <i class="fas fa-play me-1"></i> 执行分析
+                            </button>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5><i class="fas fa-table me-2"></i>查询结果</h5>
+<!--                            <div>-->
+<!--                                <span class="badge bg-primary me-2" id="resultCount">0 条记录</span>-->
+<!--                                <span class="badge bg-success" id="executionTime">0.000s</span>-->
+<!--                            </div>-->
+                        </div>
+
+                        <div class="result-container">
+                            <!-- 在结果表格上方或旁边添加 -->
+                            <div class="card mb-4">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">查询结果</h5>
+                                    <div>
+                                        <span id="resultCount" class="badge bg-secondary">等待用户查询</span>
+                                        <span id="executionTime" class="badge bg-light text-dark ms-2">-</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <!-- 自然语言结果框 -->
+                                    <div id="naturalResult" class="alert alert-light mb-3" style="min-height: 100px;">
+                                        <div class="d-flex flex-column align-items-center justify-content-center text-muted py-4">
+                                            <i class="fas fa-search fa-2x mb-2"></i>
+                                            <span>等待用户输入查询请求</span>
+                                        </div>
+                                    </div>
+
+<!--                                    &lt;!&ndash; 原始数据表格 (可根据需要保留或移除) &ndash;&gt;-->
+<!--                                    <div class="table-responsive">-->
+<!--                                        <table id="resultTable" class="table table-sm table-hover">-->
+<!--                                            <thead class="table-light">-->
+<!--                                                <tr>-->
+<!--                                                    &lt;!&ndash; 表头会根据查询结果动态生成 &ndash;&gt;-->
+<!--                                                </tr>-->
+<!--                                            </thead>-->
+<!--                                            <tbody>-->
+<!--                                                &lt;!&ndash; 查询结果将在这里动态填充 &ndash;&gt;-->
+<!--                                            </tbody>-->
+<!--                                        </table>-->
+<!--                                    </div>-->
+                                </div>
+                            </div>
+
+<!--                            <table class="table table-hover sensor-table" id="resultTable">-->
+<!--                                <thead>-->
+<!--                                    <tr>-->
+<!--                                        <th>时间</th>-->
+<!--                                        <th>设备</th>-->
+<!--                                        <th>传感器</th>-->
+<!--                                        <th>数值</th>-->
+<!--                                        <th>状态</th>-->
+<!--                                    </tr>-->
+<!--                                </thead>-->
+<!--                                <tbody>-->
+<!--                                    &lt;!&ndash; 查询结果将动态填充 &ndash;&gt;-->
+<!--                                </tbody>-->
+<!--                            </table>-->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-chart-pie me-2"></i>状态分布分析
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-7">
+                                <div class="chart-container">
+                                    <canvas id="statusChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="d-flex flex-column justify-content-around h-100">
+                                    <div class="d-flex align-items-center">
+                                        <div class="status-badge status-normal me-2" style="width: 20px; height: 20px;"></div>
+                                        <div>
+                                            <h5 class="mb-0">正常状态</h5>
+                                            <p class="mb-0" id="normalCount">0 个传感器</p>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <div class="status-badge status-warning me-2" style="width: 20px; height: 20px;"></div>
+                                        <div>
+                                            <h5 class="mb-0">警告状态</h5>
+                                            <p class="mb-0" id="warningCount">0 个传感器</p>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <div class="status-badge status-danger me-2" style="width: 20px; height: 20px;"></div>
+                                        <div>
+                                            <h5 class="mb-0">危险状态</h5>
+                                            <p class="mb-0" id="dangerCount">0 个传感器</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧面板 -->
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <i class="fas fa-microchip me-2"></i>系统资源监控（实时）
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <!-- CPU监控 -->
+                            <div class="col-6 mb-3">
+                                <div class="stat-card cpu-card">
+                                    <h6><i class="fas fa-microchip me-1"></i> CPU使用率</h6>
+                                    <div class="progress mt-2" style="height: 10px;">
+                                        <div id="cpuUsage" class="progress-bar bg-danger"
+                                             role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <div class="mt-1 text-center">
+                                        <span id="cpuPercent">0%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 内存监控 -->
+                            <div class="col-6 mb-3">
+                                <div class="stat-card memory-card">
+                                    <h6><i class="fas fa-memory me-1"></i> 内存使用</h6>
+                                    <div class="progress mt-2" style="height: 10px;">
+                                        <div id="memUsage" class="progress-bar bg-info"
+                                             role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <div class="mt-1 text-center">
+                                        <span id="memPercent">0%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 磁盘监控 -->
+                            <div class="col-6 mb-3">
+                                <div class="stat-card disk-card">
+                                    <h6><i class="fas fa-hdd me-1"></i> 磁盘使用</h6>
+                                    <div class="progress mt-2" style="height: 10px;">
+                                        <div id="diskUsage" class="progress-bar bg-warning"
+                                             role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <div class="mt-1 text-center">
+                                        <span id="diskPercent">0%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 网络监控 -->
+                            <div class="col-6 mb-3">
+                                <div class="stat-card network-card">
+                                    <h6><i class="fas fa-network-wired me-1"></i> 网络活动</h6>
+                                    <div class="progress mt-2" style="height: 10px;">
+                                        <div id="networkUsage" class="progress-bar bg-primary"
+                                             role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <div class="mt-1 text-center">
+                                        <span id="networkPercent">0%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 设备状态 -->
+                        <div class="alert alert-secondary" id="deviceStatusAlert">
+                            <i class="fas fa-circle-notch fa-spin me-2"></i>
+                            <span>正在获取系统状态...</span>
+                        </div>
+
+                        <!-- 资源图表 -->
+                        <div class="chart-container mt-3">
+                            <canvas id="resourceChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ... 其他面板保持不变 ... -->
+            </div>
+        </div>
+
+        <footer class="text-center text-muted mt-5">
+            <p>DuckDB嵌入式数据库与LLM智能分析系统 &copy; 2025 | 基于量化版Qwen-7B模型与DuckDB向量化引擎</p>
+        </footer>
+    </div>
+    <script>
+<!--        const axios = require('axios');-->
+        // 全局变量
+        let statusChart = null;
+        let resourceChart = null;
+        let systemStatsInterval = null;
+
+        // DOM加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化图表
+            initCharts();
+
+            // 启动系统资源监控
+            startSystemMonitoring();
+
+            // 绑定事件
+            document.getElementById('executeBtn').addEventListener('click', executeQuery);
+            document.getElementById('queryInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') executeQuery();
+            });
+
+            document.getElementById('copySqlBtn').addEventListener('click', copySqlToClipboard);
+            document.getElementById('exampleBtn').addEventListener('click', loadExampleQuery);
+            document.getElementById('refreshHistoryBtn').addEventListener('click', loadHistory);
+            document.getElementById('voiceBtn').addEventListener('click', startVoiceRecognition);
+
+            // 初始加载历史记录
+            loadHistory();
+        });
+
+        // 启动系统资源监控
+        function startSystemMonitoring() {
+            // 先获取一次数据
+            fetchSystemStats();
+
+            // 每5秒获取一次系统资源数据
+            systemStatsInterval = setInterval(fetchSystemStats, 5000);
+        }
+
+        // 获取系统资源数据
+        function fetchSystemStats() {
+            fetch('/api/system_stats')
+                .then(response => response.json())
+                .then(data => {
+                    updateResourceMonitoring(data);
+                })
+                .catch(error => {
+                    console.error('获取系统资源失败:', error);
+                });
+        }
+
+        // 更新资源监控UI
+        function updateResourceMonitoring(stats) {
+            if (!stats || stats.cpu.length === 0) return;
+
+            // 获取最新数据点
+            const cpu = stats.cpu[stats.cpu.length - 1];
+            const memory = stats.memory[stats.memory.length - 1];
+            const disk = stats.disk[stats.disk.length - 1];
+            const network = stats.network[stats.network.length - 1];
+
+            // 更新CPU
+            document.getElementById('cpuUsage').style.width = `${cpu}%`;
+            document.getElementById('cpuPercent').textContent = `${cpu}%`;
+
+            // 更新内存
+            document.getElementById('memUsage').style.width = `${memory}%`;
+            document.getElementById('memPercent').textContent = `${memory}%`;
+
+            // 更新磁盘
+            document.getElementById('diskUsage').style.width = `${disk}%`;
+            document.getElementById('diskPercent').textContent = `${disk}%`;
+
+            // 更新网络
+            const networkDisplay = Math.min(100, Math.round(network)); // 确保不超过100%
+            document.getElementById('networkUsage').style.width = `${networkDisplay}%`;
+            document.getElementById('networkPercent').textContent = `${networkDisplay}%`;
+
+            // 更新设备状态
+            const statusAlert = document.getElementById('deviceStatusAlert');
+            if (cpu > 90 || memory > 90 || disk > 90) {
+                statusAlert.className = 'alert alert-danger';
+                statusAlert.innerHTML = `<i class="fas fa-exclamation-triangle me-2"></i>系统资源紧张!`;
+            } else if (cpu > 70 || memory > 70 || disk > 70) {
+                statusAlert.className = 'alert alert-warning';
+                statusAlert.innerHTML = `<i class="fas fa-exclamation-circle me-2"></i>系统资源较高`;
+            } else {
+                statusAlert.className = 'alert alert-success';
+                statusAlert.innerHTML = `<i class="fas fa-check-circle me-2"></i>系统运行正常`;
+            }
+
+            // 更新资源图表
+            if (resourceChart) {
+                resourceChart.data.datasets[0].data = stats.cpu;
+                resourceChart.data.datasets[1].data = stats.memory;
+                resourceChart.data.datasets[2].data = stats.disk;
+                resourceChart.data.datasets[3].data = stats.network;
+                resourceChart.update();
+            }
+        }
+
+        // 初始化图表
+        function initCharts() {
+            // 状态分布图表
+            const statusCtx = document.getElementById('statusChart').getContext('2d');
+            statusChart = new Chart(statusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['正常', '警告', '危险'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: [
+                            'rgba(46, 204, 113, 0.7)',
+                            'rgba(243, 156, 18, 0.7)',
+                            'rgba(231, 76, 60, 0.7)'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 15,
+                                padding: 20
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 资源监控图表
+            const resourceCtx = document.getElementById('resourceChart').getContext('2d');
+            resourceChart = new Chart(resourceCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 60}, (_, i) => i),
+                    datasets: [
+                        {
+                            label: 'CPU',
+                            data: [],
+                            borderColor: '#3498db',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '内存',
+                            data: [],
+                            borderColor: '#2ecc71',
+                            backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '磁盘',
+                            data: [],
+                            borderColor: '#f39c12',
+                            backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '网络',
+                            data: [],
+                            borderColor: '#9b59b6',
+                            backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 10
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 100,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
+                        },
+                        x: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+        // 执行查询
+        function executeQuery() {
+            const queryInput = document.getElementById('queryInput').value.toString();
+            let queryJson = {
+                "query" : queryInput
+            }
+            // 显示加载状态
+            document.getElementById('naturalResult').innerHTML = `
+                <div class="d-flex flex-column align-items-center justify-content-center text-primary py-4">
+                    <div class="spinner-border mb-2" role="status"></div>
+                    <span>正在处理查询请求...</span>
+                </div>
+            `;
+
+            // 发送请求到后端
+            fetch('/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8',
+                },
+                body: JSON.stringify(queryJson)
+            })
+            .then(response => response.json())
+            .then(data => {
+                // 处理响应数据
+                if (data.error) {
+                    // 显示错误信息
+                    document.getElementById('naturalResult').innerHTML = `
+                        <div class="alert alert-danger">
+                            <h5>查询出错：</h5>
+                            <p>${data.error}</p>
+                        </div>
+                    `;
+                } else {
+                    // 显示自然语言结果
+                    document.getElementById('naturalResult').innerHTML = `
+                        <div class="alert alert-success">
+                            <h5>分析结果：</h5>
+                            <pre style="white-space: pre-wrap; background: #f8f9fa; padding: 10px; border-radius: 5px;">${data.natural_language}</pre>
+                        </div>
+                    `;
+
+                    // 更新统计信息
+                    document.getElementById('resultCount').textContent = data.result_count + ' 条记录';
+                    document.getElementById('resultCount').className = 'badge bg-success';
+                    document.getElementById('executionTime').textContent = data.execution_time + 's';
+
+                    // 如果需要显示原始数据表格（可选）
+                    // updateResultTable(data.csv_content);
+                }
+            })
+            .catch(error => {
+                console.error('查询请求失败:', error);
+                document.getElementById('naturalResult').innerHTML = `
+                    <div class="alert alert-danger">
+                        <h5>请求失败：</h5>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            });
+        }
+
+        // 更新结果表格
+        function updateResultTable(results) {
+            const resultDiv = document.getElementById('naturalResult');
+
+            // 直接显示自然语言结果
+            resultDiv.innerHTML = `
+                <div class="alert alert-info">
+                    <h5>查询结果描述：</h5>
+                    <p>${data.natural_result || '无结果'}</p>
+                    <small class="text-muted">共找到 ${data.result_count} 条记录</small>
+                </div>
+    `       ;
+            // ...原有表格填充逻辑...
+            const tbody = document.getElementById('resultTable').querySelector('tbody');
+            tbody.innerHTML = '';
+
+            if (results.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4">没有找到匹配的记录</td></tr>';
+                return;
+            }
+
+            results.forEach(item => {
+                const row = document.createElement('tr');
+
+                // 根据状态设置行类名
+                if (item.status === '警告') row.classList.add('table-warning');
+                if (item.status === '危险') row.classList.add('table-danger');
+
+                row.innerHTML = `
+                    <td>${item.timestamp}</td>
+                    <td>${item.device}</td>
+                    <td>${item.sensor}</td>
+                    <td>${item.value}</td>
+                    <td><span class="status-badge status-${item.status === '正常' ? 'normal' : item.status === '警告' ? 'warning' : 'danger'}">${item.status}</span></td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        // 更新状态分布
+        function updateStatusDistribution(statusCount) {
+            // 更新计数
+            document.getElementById('normalCount').textContent = statusCount.正常 + ' 个传感器';
+            document.getElementById('warningCount').textContent = statusCount.警告 + ' 个传感器';
+            document.getElementById('dangerCount').textContent = statusCount.危险 + ' 个传感器';
+
+            // 更新图表
+            statusChart.data.datasets[0].data = [
+                statusCount.正常,
+                statusCount.警告,
+                statusCount.危险
+            ];
+            statusChart.update();
+        }
+
+        // 更新资源图表
+        function updateResourceChart(stats) {
+            // 更新实时数据
+            document.getElementById('cpuUsage').textContent = stats.cpu[stats.cpu.length - 1] + '%';
+            document.getElementById('memoryUsage').textContent = stats.memory[stats.memory.length - 1] + '%';
+            document.getElementById('diskUsage').textContent = stats.disk[stats.disk.length - 1] + '%';
+            document.getElementById('networkUsage').textContent = stats.network[stats.network.length - 1] + '%';
+
+            // 更新图表
+            resourceChart.data.datasets[0].data = stats.cpu;
+            resourceChart.data.datasets[1].data = stats.memory;
+            resourceChart.data.datasets[2].data = stats.disk;
+            resourceChart.data.datasets[3].data = stats.network;
+            resourceChart.update();
+        }
+
+        // 更新历史记录
+        function updateHistory(history) {
+            const container = document.getElementById('historyContainer');
+            container.innerHTML = '';
+
+            if (!history || history.length === 0) {
+                container.innerHTML = '<div class="text-center py-3 text-muted">暂无查询历史</div>';
+                return;
+            }
+
+            history.forEach(item => {
+                const historyItem = document.createElement('div');
+                historyItem.className = 'history-item';
+                historyItem.innerHTML = `
+                    <div class="d-flex justify-content-between">
+                        <strong>${item[1]}</strong>
+                        <small class="text-muted">${item[2]}</small>
+                    </div>
+                    <div class="text-truncate small mt-1" title="${item[3]}">${item[3]}</div>
+                    <div class="d-flex justify-content-between mt-1">
+                        <span class="badge bg-primary">${item[4]} 条结果</span>
+                        <small class="text-muted">${formatTimeAgo(item[1])}</small>
+                    </div>
+                `;
+
+                // 点击历史记录填充查询框
+                historyItem.addEventListener('click', () => {
+                    document.getElementById('queryInput').value = item[2];
+                    executeQuery();
+                });
+
+                container.appendChild(historyItem);
+            });
+        }
+
+        // 加载历史记录
+        function loadHistory() {
+            fetch('/history')
+                .then(response => response.json())
+                .then(history => {
+                    const container = document.getElementById('historyContainer');
+                    container.innerHTML = '';
+
+                    if (history.length === 0) {
+                        container.innerHTML = '<div class="text-center py-3 text-muted">暂无查询历史</div>';
+                        return;
+                    }
+
+                    history.forEach(item => {
+                        const historyItem = document.createElement('div');
+                        historyItem.className = 'history-item';
+                        historyItem.innerHTML = `
+                            <div class="d-flex justify-content-between">
+                                <strong>${item.timestamp}</strong>
+                                <small class="text-muted">${item.user_query}</small>
+                            </div>
+                            <div class="text-truncate small mt-1" title="${item.generated_sql}">${item.generated_sql}</div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <span class="badge bg-primary">${item.result_count} 条结果</span>
+                                <small class="text-muted">${formatTimeAgo(item.timestamp)}</small>
+                            </div>
+                        `;
+
+                        historyItem.addEventListener('click', () => {
+                            document.getElementById('queryInput').value = item.user_query;
+                            executeQuery();
+                        });
+
+                        container.appendChild(historyItem);
+                    });
+                });
+        }
+
+        // 复制SQL到剪贴板
+        function copySqlToClipboard() {
+            const sql = document.getElementById('sqlOutput').textContent;
+            navigator.clipboard.writeText(sql)
+                .then(() => {
+                    const btn = document.getElementById('copySqlBtn');
+                    const originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
+                    setTimeout(() => {
+                        btn.innerHTML = originalHtml;
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('复制失败:', err);
+                });
+        }
+
+        // 加载示例查询
+        function loadExampleQuery() {
+            const examples = [
+                "显示最近温度超过80℃的传感器数据",
+                "查询过去2小时振动值大于90的设备",
+                "列出所有警告状态的传感器",
+                "统计每台设备的异常数量",
+                "导出今天3号传感器的所有数据"
+            ];
+
+            const randomExample = examples[Math.floor(Math.random() * examples.length)];
+            document.getElementById('queryInput').value = randomExample;
+            executeQuery();
+        }
+
+        // 语音识别
+        function startVoiceRecognition() {
+            const btn = document.getElementById('voiceBtn');
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> 正在聆听...';
+            btn.classList.add('disabled');
+
+            // 模拟语音识别过程
+            setTimeout(() => {
+                const examples = [
+                    "显示最近温度超过80℃的传感器数据",
+                    "查询过去2小时振动值大于90的设备",
+                    "列出所有警告状态的传感器",
+                    "统计每台设备的异常数量",
+                    "导出今天3号传感器的所有数据"
+                ];
+
+                const randomExample = examples[Math.floor(Math.random() * examples.length)];
+                document.getElementById('queryInput').value = randomExample;
+                executeQuery();
+
+                btn.innerHTML = '<i class="fas fa-microphone"></i> 语音输入';
+                btn.classList.remove('disabled');
+            }, 2000);
+        }
+
+        // 格式化时间差
+        function formatTimeAgo(timestamp) {
+            const now = new Date();
+            const time = new Date(timestamp);
+            const diffSeconds = Math.floor((now - time) / 1000);
+
+            if (diffSeconds < 60) {
+                return '刚刚';
+            } else if (diffSeconds < 3600) {
+                return Math.floor(diffSeconds / 60) + '分钟前';
+            } else if (diffSeconds < 86400) {
+                return Math.floor(diffSeconds / 3600) + '小时前';
+            } else {
+                return Math.floor(diffSeconds / 86400) + '天前';
+            }
+        }
+    </script>
+</body>
+</html>
