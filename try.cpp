@@ -92,6 +92,22 @@ std::string replace_from_table(const std::string& sql) {
     return std::regex_replace(sql, pattern, replacement);
 }
 
+void runLlamaScript() {
+    // 打开llama进程
+    FILE* pipe = _popen(".\\llama\\lanuch.cmd", "r");
+    if (!pipe) {
+        cerr << "Failed to open pipe" << endl;
+        return;
+    }
+
+    char buffer[128];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        cout << "Received: " << buffer;
+    }
+
+    _pclose(pipe);
+}
+
 // 数据库连接包装类
 class SQLiteDB {
 public:
@@ -658,7 +674,6 @@ private:
             duckdb_database db;
             duckdb_connection con;
             duckdb_result result;
-            cout << "dgaoisdfgjoooooooooooooooooool" << endl;
             // 1. 初始化DuckDB
             if (duckdb_open(nullptr, &db)) {
                 throw std::runtime_error("无法打开DuckDB数据库");
@@ -667,7 +682,6 @@ private:
                 duckdb_close(&db);
                 throw std::runtime_error("无法连接DuckDB数据库");
             }
-            cout << "dgaoisdfgjoooooooooooooooooool" << endl;
             // 2. 创建表并加载CSV数据
             std::string create_table_sql =
                 "CREATE TABLE device_metrics AS SELECT * FROM read_csv_auto('" +
@@ -695,19 +709,12 @@ private:
             cout <<"sql语句：" << sql_query << endl;
             // 3. 执行用户查询
             if (duckdb_query(con, sql_query.c_str(), &result) != DuckDBSuccess) {
-                std::string error = duckdb_result_error(&result);
-                duckdb_destroy_result(&result);
-                duckdb_disconnect(&con);
-                duckdb_close(&db);
-            }
-            else {
                 std::string default_sql =
-                    "SELECT * FROM '" + CSV_FILE +"'";
+                    "SELECT * FROM '" + CSV_FILE + "'";
                 duckdb_destroy_result(&result);
-                cout << default_sql<<endl;
+                cout << default_sql << endl;
                 duckdb_query(con, default_sql.c_str(), &result);
             }
-            cout << "dgaoisdfgjoooooooooooooooooool" << endl;
             // 4. 将结果转换为CSV字符串
             std::ostringstream csv_stream;
             idx_t col_count = duckdb_column_count(&result);
@@ -719,7 +726,6 @@ private:
                 csv_stream << duckdb_column_name(&result, col);
             }
             csv_stream << "\n";
-            cout << "dgaoisdfgjoooooooooooooooooool" << endl;
             // 添加数据行
             for (idx_t row = 0; row < row_count; row++) {
                 for (idx_t col = 0; col < col_count; col++) {
@@ -743,7 +749,7 @@ private:
 
             return {
                 {"sql", sql},
-                {"natural_language", natural_language},
+                {"natural_language", csv_output+"\\n"+natural_language},
                 {"result_count", row_count},
                 {"execution_time", 0.1}//, // 实际应用中应计算真实时间
                 /*{"csv_content", csv_output}*/
@@ -766,9 +772,9 @@ private:
         escapeControlCharacters(mod_csv);
         std::string payload = R"({
             "messages": [
-            {"role": "user", "content": "这是我的数据库内容，请你把其中的每一行解释为自然语言： )"+ mod_csv + R"( "}
+            {"role": "user", "content": "数据库表结构：(timestamp(yyyy/mm/dd xx:xx:xx)、cpu_temp(float)cpu温度、cpu_usage(float)cpu使用、memory_usage(float)内存使用、disk_usage(float)硬盘使用、network_up(float)网络上传、network_down(float)网络下载)，m/s为网速不是风速，这些不是气象局数据，这些是硬件监控数据，以下提供我的数据库内容（只提取了部分数据，具体展示给你的是那一部分，请看表头），请你把其中的每一行解释为自然语言，尽量简短一些： )"+ mod_csv + R"( "}
             ],
-            "max_tokens": 300000
+            "max_tokens": 600
         })";
         json payload_json = json::parse(payload);
         std::string response = HTTPClient::Post(LLAMA_URL, payload_json.dump());
@@ -801,9 +807,8 @@ namespace Utils {
     }
 }
 
-
-// 主应用
-int main() {
+void webService()
+{
     try {
         // 初始化数据库
         SQLiteDB db(DB_FILE);
@@ -828,7 +833,7 @@ int main() {
             .methods("POST"_method)
             ([&processor](const crow::request& req) {
             try {
-                auto body = json::parse(req.body);  
+                auto body = json::parse(req.body);
                 std::string query = body["query"];
                 json result = processor.process_query(query);
                 return crow::response(200, result.dump());
@@ -884,8 +889,16 @@ int main() {
     }
     catch (const std::exception& e) {
         std::cerr << "应用启动失败: " << e.what() << std::endl;
-        return 1;
+        return ;
     }
+}
+
+// 主应用
+int main() {
+    thread llamaThread(runLlamaScript);
+    thread webServiceThread(webService);
+    llamaThread.join();
+    webServiceThread.join();
 
     return 0;
 }
